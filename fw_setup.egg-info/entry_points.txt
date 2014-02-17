@@ -1,0 +1,3 @@
+[console_scripts]
+fw_setup = fw_setup.fw_setup:main
+
