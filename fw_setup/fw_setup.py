@@ -95,7 +95,61 @@ class FirewallSetup(object):
             logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 
-    def import_smoothwall(self, config):
+    def emit_dhcp(self, config):
+        leases = []
+        for intrf in config['dhcp']:
+            print("Emitting dhcp fixed leases for %s" % intrf['interface'])
+            prefix = intrf['prefix']
+            if prefix!= "" and not prefix.endswith('.'): prefix += '.'
+            for client in intrf['leases']:
+                print client
+                client['desc'] = client.setdefault('desc', '')
+                client['remark'] = "%(name)s %(desc)s" % client
+                client['enabled'] = (client['en'])
+                client['prefix'] = prefix
+                leases.append('%(mac)s,%(prefix)s%(ip)s,%(enabled)s,,,,%(remark)s' % client)
+                
+        print '\n'.join(leases)
+
+    def validate_dhcp_fixed_with_dns(self, my_config):
+        """ Make sure that the dhcp fixed leases do not conflict with 
+            the static dns hostnames.  If there is a conflict, or there is
+            an identical hostname to ip mapping, then remove the one
+            from the dns entries (since we'll propagate the dhcp fixed
+            leases automatically to the hosts file when we push changes
+            to the firewall)
+        """
+        config = my_config.copy()
+        dhcp_name = {}
+        dhcp_ip = {}
+        dns_name = {}
+        for entry in config['dhcp'][0]['leases']:
+            dhcp_name[str(entry['name'])] = entry
+            dhcp_ip[str(entry['ip'])] = entry
+            # Also make sure desc and en is set
+            entry['desc'] = entry.setdefault('desc','')
+            entry['en'] = entry.setdefault('en', True)
+
+        for entry in config['dns']['hosts']:
+            dns_name[str(entry['name'])] = entry
+       
+        # dhcp ->   name:ip
+        #    Remove all dns entries with matching name
+        #
+        # dhcp ->   name:ip
+        # dns  ->   ip:some_name 
+        #    Implies alias in dns, so just report it
+        for name, entry in dns_name.items():
+            if dhcp_name.has_key(name):
+                print("Removing static host entry that is already present in dhcp (%s -> %s)" % (name, entry['ip']))
+                config['dns']['hosts'].remove(entry)
+            elif dhcp_ip.has_key(entry['ip']):
+                print("Found DNS alias (%s) to fixed lease (%s -> %s)" % (name, entry['ip'], dhcp_ip[entry['ip']]['name']))
+        return config
+
+
+    def import_smoothwall(self, my_config):
+        config = my_config.copy()
         with open('config/import_smoothwal.dhcp.txt') as f:
             for line in f:
                 (hostname, mac, ip, desc, enabled) = line.strip().split(',')
@@ -104,10 +158,25 @@ class FirewallSetup(object):
                         'mac':mac, 
                         'name': hostname,
                         'ip': ip,
-                        'description':desc
+                        'desc':desc,
+                        'en': enabled=='on',
                         })
 
+        with open('config/import_smoothwall.dns.txt') as f:
+            for line in f:
+                (ip, hostname, enabled, desc) = line.strip().split(',')
+                ip = ip.split('.')[-1]
+                config['dns']['hosts'].append( { 
+                        'name': hostname,
+                        'ip': ip,
+                        'desc':desc,
+                        'en': enabled=='on',
+                        })
+        # Sort by ip
         config['dhcp']['fixed'] = sorted(config['dhcp']['fixed'], key=lambda x: int(x['ip']))
+        # Sort by ip
+        config['dns']['hosts'] = sorted(config['dns']['hosts'], key=lambda x: int(x['ip']))
+        return config
 
 
 
@@ -120,10 +189,13 @@ class FirewallSetup(object):
         """
         # Read the command line options
         self.get_options(argv)
-        self.import_smoothwall(self.config)
+        #self.config = self.import_smoothwall(self.config)
         print self.config
+        self.config = self.validate_dhcp_fixed_with_dns(self.config)
         with open('config/ipfire_new.yml', 'w') as f:
             yaml.dump(self.config, f)
+           
+        self.emit_dhcp(self.config)
 
 
 def main():
