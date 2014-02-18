@@ -76,72 +76,39 @@ class FirewallSetup(object):
         p.add_argument('-v', '--verbose', action='store_true',
             default=False, dest='verbose', help='Turn on verbose mode')
 
-        p.add_argument('-m', '--mail', action='store_true',
-            default=False, dest='mail', help='Send email after conversion')
-
-        #---------
-        # Single or watch mode
-        #--------
-        single_or_watch_group = p.add_mutually_exclusive_group(required=True)
-        # Positional argument for single file conversion
-        single_or_watch_group.add_argument("pdf_filename", nargs="?", help="Scanned pdf file to OCR")
-        # Watch directory for watch mode
-        single_or_watch_group.add_argument('-w', '--watch', 
-             dest='watch_dir', help='Watch given directory and run ocr automatically until terminated')
-
-        #-----------
-        # Filing options
-        #----------
-        filing_group = p.add_argument_group(title="Filing optinos")
-        filing_group.add_argument('-f', '--file', action='store_true',
-            default=False, dest='enable_filing', help='Enable filing of converted PDFs')
-        filing_group.add_argument('-c', '--config', type = argparse.FileType('r'),
-             dest='configfile', help='Configuration file for defaults and PDF filing')
-        filing_group.add_argument('-e', '--evernote', action='store_true',
-            default=False, dest='enable_evernote', help='Enable filing to Evernote')
-
+        p.add_argument('config', help='Server configuration yaml')
 
         args = p.parse_args(argv)
 
         self.debug = args.debug
         self.verbose = args.verbose
-        self.pdf_filename = args.pdf_filename
-        self.watch_dir = args.watch_dir
-        self.enable_email = args.mail
+        self.config_filename = args.config
 
+        with open(self.config_filename) as f:
+            self.config = yaml.load(f)
+
+        print self.config
         if self.debug:
             logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 
         if self.verbose:
             logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-        # Parse configuration file (YAML) if specified
-        if args.configfile:
-            self.config = self._get_config_file(args.configfile)
-            logging.debug("Read in configuration file")
-            logging.debug(self.config)
 
-        if args.enable_evernote:
-            self.enable_evernote = True
-        else:
-            self.enable_evernote = False
+    def import_smoothwall(self, config):
+        with open('config/import_smoothwal.dhcp.txt') as f:
+            for line in f:
+                (hostname, mac, ip, desc, enabled) = line.strip().split(',')
+                ip = ip.split('.')[-1]
+                config['dhcp']['fixed'].append( { 
+                        'mac':mac, 
+                        'name': hostname,
+                        'ip': ip,
+                        'description':desc
+                        })
 
-        if args.enable_filing or args.enable_evernote:
-            self.enable_filing = True
-            if not args.configfile:
-                p.error("Please specify a configuration file(CONFIGFILE) to enable filing")
-        else:
-            self.enable_filing = False
+        config['dhcp']['fixed'] = sorted(config['dhcp']['fixed'], key=lambda x: int(x['ip']))
 
-        self.watch = False
-
-        if args.watch_dir:
-            logging.debug("Starting to watch")
-            self.watch = True
-
-        if self.enable_email:
-            if not args.configfile:
-                p.error("Please specify a configuration file(CONFIGFILE) to enable email")
 
 
     def go(self, argv):
@@ -153,6 +120,10 @@ class FirewallSetup(object):
         """
         # Read the command line options
         self.get_options(argv)
+        self.import_smoothwall(self.config)
+        print self.config
+        with open('config/ipfire_new.yml', 'w') as f:
+            yaml.dump(self.config, f)
 
 
 def main():
