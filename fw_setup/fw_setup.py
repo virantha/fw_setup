@@ -19,8 +19,9 @@ import logging
 import shutil
 
 from version import __version__
+from plugin import Plugin
 import yaml
-
+from fabric.api import env, run, cd, lcd, put
 
 """
    
@@ -38,6 +39,13 @@ class FirewallSetup(object):
         """ 
         """
         self.config = None
+        self._register_plugins()
+
+    def _register_plugins(self):
+        script_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+        Plugin.load(os.path.join(script_dir,"plugins"))
+        for p, p_class in Plugin.registered.items():
+            print("Registered output plugin type %s" % p) 
 
     def _get_config_file(self, config_file):
         """
@@ -87,29 +95,15 @@ class FirewallSetup(object):
         with open(self.config_filename) as f:
             self.config = yaml.load(f)
 
-        print self.config
         if self.debug:
             logging.basicConfig(level=logging.DEBUG, format='%(message)s')
 
         if self.verbose:
             logging.basicConfig(level=logging.INFO, format='%(message)s')
 
+        logging.debug(self.config)
 
-    def emit_dhcp(self, config):
-        leases = []
-        for intrf in config['dhcp']:
-            print("Emitting dhcp fixed leases for %s" % intrf['interface'])
-            prefix = intrf['prefix']
-            if prefix!= "" and not prefix.endswith('.'): prefix += '.'
-            for client in intrf['leases']:
-                print client
-                client['desc'] = client.setdefault('desc', '')
-                client['remark'] = "%(name)s %(desc)s" % client
-                client['enabled'] = (client['en'])
-                client['prefix'] = prefix
-                leases.append('%(mac)s,%(prefix)s%(ip)s,%(enabled)s,,,,%(remark)s' % client)
-                
-        print '\n'.join(leases)
+
 
     def validate_dhcp_fixed_with_dns(self, my_config):
         """ Make sure that the dhcp fixed leases do not conflict with 
@@ -148,37 +142,6 @@ class FirewallSetup(object):
         return config
 
 
-    def import_smoothwall(self, my_config):
-        config = my_config.copy()
-        with open('config/import_smoothwal.dhcp.txt') as f:
-            for line in f:
-                (hostname, mac, ip, desc, enabled) = line.strip().split(',')
-                ip = ip.split('.')[-1]
-                config['dhcp']['fixed'].append( { 
-                        'mac':mac, 
-                        'name': hostname,
-                        'ip': ip,
-                        'desc':desc,
-                        'en': enabled=='on',
-                        })
-
-        with open('config/import_smoothwall.dns.txt') as f:
-            for line in f:
-                (ip, hostname, enabled, desc) = line.strip().split(',')
-                ip = ip.split('.')[-1]
-                config['dns']['hosts'].append( { 
-                        'name': hostname,
-                        'ip': ip,
-                        'desc':desc,
-                        'en': enabled=='on',
-                        })
-        # Sort by ip
-        config['dhcp']['fixed'] = sorted(config['dhcp']['fixed'], key=lambda x: int(x['ip']))
-        # Sort by ip
-        config['dns']['hosts'] = sorted(config['dns']['hosts'], key=lambda x: int(x['ip']))
-        return config
-
-
 
     def go(self, argv):
         """ 
@@ -189,13 +152,13 @@ class FirewallSetup(object):
         """
         # Read the command line options
         self.get_options(argv)
-        #self.config = self.import_smoothwall(self.config)
-        print self.config
         self.config = self.validate_dhcp_fixed_with_dns(self.config)
-        with open('config/ipfire_new.yml', 'w') as f:
-            yaml.dump(self.config, f)
            
-        self.emit_dhcp(self.config)
+        firewall = Plugin.registered['Ipfire'](self.config)
+        
+        firewall.emit_dns()
+        firewall.emit_dhcp()
+        firewall.upload_files()
 
 
 def main():
