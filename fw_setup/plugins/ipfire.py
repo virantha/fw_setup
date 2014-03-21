@@ -2,7 +2,8 @@
 from plugin import Plugin
 from fabric.api import env, run, cd, lcd, put
 import os
-
+import requests
+import mechanize
 class Ipfire(Plugin):
 
     def __init__ (self, config, dest_dir='ipfire'):
@@ -34,3 +35,14 @@ class Ipfire(Plugin):
             put('dhcp.txt', 'dhcp/fixleases')
             put('dns.txt', 'main/hosts')
 
+        url = 'https://%s:444/cgi-bin/dhcp.cgi' % fwvars['ip']
+        
+        print ("Calling firewall dhcp update on web interface")
+        br = mechanize.Browser()
+        br.add_password(url, fwvars['webusername'], fwvars['webpassword'])
+        br.open(url)
+        br.select_form(nr=0)
+        br.submit()
+
+        print ("Calling firewall dns update using rebuildhosts")
+        run('/usr/local/bin/rebuildhosts')
