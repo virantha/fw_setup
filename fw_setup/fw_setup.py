@@ -104,6 +104,20 @@ class FirewallSetup(object):
         logging.debug(self.config)
 
 
+    def _error(self, msg):
+        print ("ERROR: %s" % msg)
+        sys.exit(-1)
+
+    def check_no_duplicates_in_dhcp(self, my_config):
+        for interface in my_config['dhcp']:
+            ip = {} # hash to hold already seen ip's as keys
+            for entry in interface['leases']:
+                new_ip = str(entry['ip'])
+                if ip.has_key(new_ip):
+                    self._error("Interface %s: Found hosts %s and %s with same IP assignment" % (interface['interface'], ip[new_ip], entry['name']))
+                else:
+                    ip[new_ip] = entry['name']
+
 
     def validate_dhcp_fixed_with_dns(self, my_config):
         """ Make sure that the dhcp fixed leases do not conflict with 
@@ -117,6 +131,9 @@ class FirewallSetup(object):
         dhcp_name = {}
         dhcp_ip = {}
         dns_name = {}
+        
+        self.check_no_duplicates_in_dhcp(my_config)
+
         for entry in config['dhcp'][0]['leases']:
             dhcp_name[str(entry['name'])] = entry
             dhcp_ip[str(entry['ip'])] = entry
@@ -154,10 +171,13 @@ class FirewallSetup(object):
         self.get_options(argv)
         self.config = self.validate_dhcp_fixed_with_dns(self.config)
            
-        firewall = Plugin.registered['Ipfire'](self.config)
+        plugin_name = self.config['firewall']['type']
+        print("Selecting firewall type: %s" % plugin_name)
+        firewall = Plugin.registered[plugin_name](self.config)
         
         firewall.emit_dns()
         firewall.emit_dhcp()
+        firewall.emit_portfw()
         firewall.upload_files()
 
 

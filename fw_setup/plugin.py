@@ -59,19 +59,28 @@ class Plugin(object):
             f.write(contents)
 
     def _get_dhcp_entries(self, config):
-        clients = []
+        """
+            Returns a dict, mapping:
+                { 'interface': [ list of clients] ... }
+
+        """
+        clients = {}
         for intrf in config['dhcp']:
             print("Emitting dhcp fixed leases for %s" % intrf['interface'])
+            clients[intrf['interface']] = []
+
             prefix = intrf['prefix']
             if prefix!= "" and not prefix.endswith('.'): prefix += '.'
             for client in intrf['leases']:
                 logging.debug(client)
                 client['desc'] = client.setdefault('desc', '')
                 client['remark'] = "%(name)s %(desc)s" % client
+                client['name'] = "%(name)s" % client
                 if client['en']: client['enabled'] = 'on'
                 else: client['enabled'] = 'off'
                 client['prefix'] = prefix
-                clients.append(client)
+                client['interface'] = intrf['interface']
+                clients[intrf['interface']].append(client)
                 
         return clients
 
@@ -109,3 +118,41 @@ class Plugin(object):
         # TODO: Honor enabled entries
         return dns_name
 
+    def _get_portfw(self, config):
+        
+        pf = config.get('port_forwarding', [])
+
+        my_rules = []
+        for rule in pf:
+            if rule['type'] == 'both':
+                rule_types = ['udp', 'tcp']
+            else:
+                rule_types = [rule['type']]
+
+            for rule_type in rule_types:
+                if rule['src'] == 'all':
+                    src = '0.0.0.0/0'
+                else:
+                    src = rule['src']
+                port = rule['port']
+                dest = rule['dest']
+                dest_port = rule['dest_port']
+
+                my_rules.append({'type': rule_type,
+                                 'src' : src,
+                                 'port' : port,
+                                 'dest' : dest,
+                                 'dest_port' : dest_port,
+                                 })
+
+        return my_rules
+
+    # Stubs for functions that firewall plugins can override
+    def emit_dns(self): 
+        print ("No dns hosts emitter defined for plugin %s" % self.__class__.__name__)
+
+    def emit_dhcp(self):
+        print ("No dhcp static lease emitter defined for plugin %s" % self.__class__.__name__)
+
+    def emit_portfw(self):
+        print ("No port forwarding defined for plugin %s" % self.__class__.__name__)
