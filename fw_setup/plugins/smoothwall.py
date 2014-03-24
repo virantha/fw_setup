@@ -30,7 +30,7 @@ class Smoothwall(Plugin):
         for interface in clients:
             leases = []
             for client in clients[interface]:
-                leases.append('%(name)s,%(mac)s,%(prefix)s%(ip)s,%(remark)s,%(enabled)s' % client)
+                leases.append('%(name)s,%(mac)s,%(prefix)s%(ip)s,%(remark)s,on' % client)
                 
             self._write_file(self.dest_dir, 'dhcp_%s.txt' % interface, ('\n'.join(leases)))
 
